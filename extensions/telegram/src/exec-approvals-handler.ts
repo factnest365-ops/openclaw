@@ -19,7 +19,7 @@ import {
   resolveTelegramExecApprovalConfig,
   resolveTelegramExecApprovalTarget,
 } from "./exec-approvals.js";
-import { editMessageReplyMarkupTelegram, sendMessageTelegram, sendTypingTelegram } from "./send.js";
+import { editMessageReplyMarkupTelegram, sendMessageTelegram, sendTypingTelegram, deleteMessageTelegram } from "./send.js";
 
 const log = createSubsystemLogger("telegram/exec-approvals");
 
@@ -51,6 +51,7 @@ export type TelegramExecApprovalHandlerDeps = {
   sendTyping?: typeof sendTypingTelegram;
   sendMessage?: typeof sendMessageTelegram;
   editReplyMarkup?: typeof editMessageReplyMarkupTelegram;
+  deleteMessage?: typeof deleteMessageTelegram;
 };
 
 function matchesFilters(params: {
@@ -191,6 +192,7 @@ export class TelegramExecApprovalHandler {
   private readonly sendTyping: typeof sendTypingTelegram;
   private readonly sendMessage: typeof sendMessageTelegram;
   private readonly editReplyMarkup: typeof editMessageReplyMarkupTelegram;
+  private readonly deleteMessage: typeof deleteMessageTelegram;
 
   constructor(
     private readonly opts: TelegramExecApprovalHandlerOpts,
@@ -200,6 +202,7 @@ export class TelegramExecApprovalHandler {
     this.sendTyping = deps.sendTyping ?? sendTypingTelegram;
     this.sendMessage = deps.sendMessage ?? sendMessageTelegram;
     this.editReplyMarkup = deps.editReplyMarkup ?? editMessageReplyMarkupTelegram;
+    this.deleteMessage = deps.deleteMessage ?? deleteMessageTelegram;
   }
 
   shouldHandle(request: ExecApprovalRequest): boolean {
@@ -348,11 +351,20 @@ export class TelegramExecApprovalHandler {
 
     await Promise.allSettled(
       pending.messages.map(async (message) => {
+        // Remove the inline buttons to indicate the request is resolved
         await this.editReplyMarkup(message.chatId, message.messageId, [], {
           cfg: this.opts.cfg,
           token: this.opts.token,
           accountId: this.opts.accountId,
         });
+        // Delete the approval message after a short delay to give user time to see the resolved state
+        setTimeout(() => {
+          void this.deleteMessage(message.chatId, message.messageId, {
+            cfg: this.opts.cfg,
+            token: this.opts.token,
+            accountId: this.opts.accountId,
+          }).catch(() => {});
+        }, 2000);
       }),
     );
   }
